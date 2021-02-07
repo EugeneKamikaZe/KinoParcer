@@ -1,13 +1,14 @@
-const $ = require('jquery')
 const fs = require('fs')
 const puppeteer = require('puppeteer')
 
-let link = 'https://www.kino-teatr.ru/kino/acter/m/ros/545491/works/'
+const link = 'https://www.kino-teatr.ru/kino/acter/w/ros/318942/works/'
+let globalArr = []
 
 const actor = async () => {
     try {
+        // Puppeteer settings ###
         let browser = await puppeteer.launch({
-            headless: true, slowMo: 100, devtools: true
+            headless: true, slowMo: 100, devtools: false
         })
         let page = await browser.newPage()
         await page.setViewport({
@@ -15,90 +16,80 @@ const actor = async () => {
             height: 900
         })
 
-    // All Films
+        // All Films ###
         await page.goto(link, {waitUntil: 'domcontentloaded'})
         await page.waitForSelector('div.grid_content.page_content_block')
 
         let films = await page.evaluate(async () => {
-            let result = []
             const container = await document.querySelectorAll('div.film_block')
+            let result = []
 
-            let text = Array.from(container)
+            container.forEach(film => {
+                const filmName = film.querySelector('.film_name') ? film.querySelector('.film_name').innerText : ''
+                const filmYear = film.querySelector('.film_year_text') ? film.querySelector('.film_year_text').innerText.replace(/\r?\n/g, '') : ''
+                const filmLink = film.querySelector('.film_name > a') ? film.querySelector('.film_name > a').href : ''
 
-            text.forEach(item => {
-                const films = item.querySelector('.film_name > a') === null ? '' : item.querySelector('.film_name > a')
-                const filmLink = films.href
-
-                if (filmLink) {
-                    result.push({
-                        filmLink,
-                    })
-                }
+                result.push({
+                    filmName: filmName,
+                    filmYear: filmYear,
+                    filmLink: filmLink
+                })
             })
 
             return result
         })
 
-    // Current Film
-        const globalArr = []
-        const filmPage = async function allFilms() {
-            if (films.length > 0) {
-                for (const item of films) {
-                    console.log(item)
-                    await page.goto(item.filmLink, {waitUntil: 'domcontentloaded'})
-                    await page.waitForSelector('div.grid_content.page_content_block')
-
-                    let currentFilm = await page.evaluate(async () => {
-                        let result = []
-                        const container = await document.querySelectorAll('div.film_persons_block')
-
-                        const filmInfo = document.querySelector('div#page_name_line > #page_name > h1').textContent
-                        const filmInfoArr = filmInfo.replace(')', '').split(' (')
-                        const filmName = {type: 'Название фильма', value: filmInfoArr[0]}
-                        const filmDate = {type: 'Дата выпуска', value: filmInfoArr[1]}
-                        result.push(filmName, filmDate)
-
-                        let text = Array.from(container)
-                        text.forEach(item => {
-                            let personTypeObj = {
-                                director: 'Режиссер',
-                                screenwriter: 'Сценаристы',
-                                composer: 'Композитор',
-                                produced: 'Производство'
-                            }
-
-                            const props = item.querySelector('.film_persons_type')
-                            const dataType = props.innerText.trim()
-                            const person = props.nextElementSibling.textContent.replace('\n', '')
-
-                            Object.keys(personTypeObj).forEach(key => {
-                                if (personTypeObj[key] === dataType) {
-                                    result.push({
-                                        type: dataType,
-                                        value: person
-                                    })
-                                }
-                            })
-                        })
-                        console.log(result)
-
-                        return result
-                    })
-
-                    globalArr.push(currentFilm)
-
-                    await page.goBack()
-                }
-            }
+        // Current Film ###
+        for (const film of films) {
+            await page.goto(film.filmLink, {waitUntil: 'domcontentloaded'})
+                .then(() => page.waitForSelector('div.grid_content.page_content_block'))
+            await globalArr.push(Object.assign(film, await currentFilm()))
         }
-        await filmPage()
 
-        fs.writeFile('kino.json', JSON.stringify(globalArr), (err) => {
+        // Writing to file ###
+        await fs.writeFile('kino.json', JSON.stringify(globalArr), (err) => {
             if (err) throw err
             console.log('Saved success...')
         })
-
         await browser.close()
+
+        // Functions ###
+        function currentFilm() {
+            return page.evaluate(async () => {
+                let internalResult = {},
+                    producer = [],
+                    screenwriter = [],
+                    composer = [],
+                    produced
+
+                const container = await document.querySelector('div.grid_content.page_content_block')
+                const personBlock = container.querySelectorAll('.film_persons_block')
+
+                personBlock.forEach(item => {
+                    const blockType = item.querySelector('.film_persons_type').innerText
+                    const blockName = item.querySelector('.film_persons_names').innerText
+
+                    if (blockType === 'Режиссер' || blockType === 'Режиссеры') {
+                        producer.push(blockName)
+                    } else if (blockType === 'Сценарист' || blockType === 'Сценаристы') {
+                        screenwriter.push(blockName)
+                    } else if (blockType === 'Композитор' || blockType === 'Композиторы') {
+                        composer.push(blockName)
+                    } else if (blockType === 'Производство') {
+                        produced = blockName
+                    }
+
+                    internalResult = {
+                        producer: producer,
+                        screenwriter: screenwriter,
+                        composer: composer,
+                        produced: produced
+                    }
+                    return internalResult
+                })
+                return internalResult
+            })
+        }
 
     } catch (e) {
         console.log(e)
@@ -106,4 +97,3 @@ const actor = async () => {
 }
 
 actor()
-
