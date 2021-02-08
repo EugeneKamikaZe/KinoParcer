@@ -1,98 +1,157 @@
 const fs = require('fs')
 const puppeteer = require('puppeteer')
 
-const link = 'https://www.kino-teatr.ru/kino/acter/w/ros/318942/works/'
+const link = 'https://www.kino-teatr.ru/kino/acter/w/ros/8174/works/'
 let globalArr = []
 
 const actor = async () => {
-    try {
-        // Puppeteer settings ###
-        let browser = await puppeteer.launch({
-            headless: true, slowMo: 100, devtools: false
-        })
-        let page = await browser.newPage()
-        await page.setViewport({
-            width: 900,
-            height: 900
-        })
+    // Puppeteer settings ###
+    let browser = await puppeteer.launch({
+        headless: true, slowMo: 100, devtools: false
+    })
+    let page = await browser.newPage()
+    await page.setViewport({
+        width: 900,
+        height: 900
+    })
+    await console.log('Starting parse...')
 
-        // All Films ###
-        await page.goto(link, {waitUntil: 'domcontentloaded'})
-        await page.waitForSelector('div.grid_content.page_content_block')
+    // All Films ###
+    await page.goto(link, {waitUntil: 'domcontentloaded'})
+        .then(() => page.waitForSelector('div.grid_content.page_content_block'))
 
-        let films = await page.evaluate(async () => {
-            const container = await document.querySelectorAll('div.film_block')
-            let result = []
+    let films = await page.evaluate(async () => {
+        const container = await document.querySelectorAll('div.film_block')
+        let result = []
 
-            container.forEach(film => {
-                const filmName = film.querySelector('.film_name') ? film.querySelector('.film_name').innerText : ''
-                const filmYear = film.querySelector('.film_year_text') ? film.querySelector('.film_year_text').innerText.replace(/\r?\n/g, '') : ''
-                const filmLink = film.querySelector('.film_name > a') ? film.querySelector('.film_name > a').href : ''
+        container.forEach(film => {
+            const filmName = film.querySelector('.film_name') ? film.querySelector('.film_name').innerText.replace(/\|\|/g, '|') : ''
+            const filmYear = film.querySelector('.film_year_text') ? film.querySelector('.film_year_text').innerText.replace(/\r?\n/g, '') : ''
+            const filmLink = film.querySelector('.film_name > a') ? film.querySelector('.film_name > a').href : ''
+            const filmRole = film.querySelector('.film_role')
+            const country = film.querySelector('.film_country')
+            let roleType
+            let filmCountry
 
-                result.push({
-                    filmName: filmName,
-                    filmYear: filmYear,
-                    filmLink: filmLink
-                })
+            country ? filmCountry = country.innerText.replace(/\)/, '').replace(/\(/, '') : filmCountry = 'Россия'
+
+            if (filmRole) {
+                filmRole.innerText === 'эпизод' ? roleType = '3' : ''
+                filmRole.innerText === 'главная' ? roleType = '1' : ''
+                filmRole.innerText !== 'главная' && filmRole.innerText !== 'эпизод' && filmRole ? roleType = '2' : ''
+            } else {
+                roleType = ''
+            }
+
+            result.push({
+                filmName: filmName,
+                filmYear: filmYear,
+                filmLink: filmLink,
+                filmRole: roleType,
+                filmCountry: filmCountry
             })
-
-            return result
         })
+        return result
+    })
 
-        // Current Film ###
-        for (const film of films) {
+    // Current Film ###
+    for (const [index, film] of films.entries()) {
+        if (film.filmLink.length > 0) {
             await page.goto(film.filmLink, {waitUntil: 'domcontentloaded'})
                 .then(() => page.waitForSelector('div.grid_content.page_content_block'))
-            await globalArr.push(Object.assign(film, await currentFilm()))
+            let newArr = Object.assign(film, await currentFilm())
+            await console.log(index, film.filmName)
+
+            let newObj = await currentFilm()
+            await page.goto(newObj.allActorsBtn, {waitUntil: 'domcontentloaded'})
+                .then(() => page.waitForSelector('div.grid_content.page_content_block'))
+
+            await globalArr.push(Object.assign(newArr, await actors()))
         }
+    }
 
-        // Writing to file ###
-        await fs.writeFile('kino.json', JSON.stringify(globalArr), (err) => {
-            if (err) throw err
-            console.log('Saved success...')
-        })
-        await browser.close()
+    console.log(await clearGlobalArr())
+    // await clearGlobalArr()
 
-        // Functions ###
-        function currentFilm() {
-            return page.evaluate(async () => {
-                let internalResult = {},
-                    producer = [],
-                    screenwriter = [],
-                    composer = [],
-                    produced
+    // Writing to file ###
+    await fs.writeFile('kino.json', JSON.stringify(await clearGlobalArr()), (err) => {
+        if (err) throw err
+        console.log('Saved success...')
+    })
+    await browser.close()
 
-                const container = await document.querySelector('div.grid_content.page_content_block')
-                const personBlock = container.querySelectorAll('.film_persons_block')
+    // Functions ###
+    function currentFilm() {
+        return page.evaluate(async () => {
+            let internalResult = {},
+                producer = [],
+                screenwriter = [],
+                composer = [],
+                type = 'Фильм',
+                produced,
+                allActorsBtn
 
-                personBlock.forEach(item => {
-                    const blockType = item.querySelector('.film_persons_type').innerText
-                    const blockName = item.querySelector('.film_persons_names').innerText
+            const container = await document.querySelector('div.grid_content.page_content_block')
+            const personBlock = container.querySelectorAll('.film_persons_block')
 
-                    if (blockType === 'Режиссер' || blockType === 'Режиссеры') {
-                        producer.push(blockName)
-                    } else if (blockType === 'Сценарист' || blockType === 'Сценаристы') {
-                        screenwriter.push(blockName)
-                    } else if (blockType === 'Композитор' || blockType === 'Композиторы') {
-                        composer.push(blockName)
-                    } else if (blockType === 'Производство') {
-                        produced = blockName
-                    }
+            personBlock.forEach(item => {
+                const blockType = item.querySelector('.film_persons_type').innerText
+                const blockName = item.querySelector('.film_persons_names')
 
-                    internalResult = {
-                        producer: producer,
-                        screenwriter: screenwriter,
-                        composer: composer,
-                        produced: produced
-                    }
-                    return internalResult
-                })
-                return internalResult
+                if (blockType === 'Режиссер' || blockType === 'Режиссеры') {
+                    producer.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                } else if (blockType === 'Сценарист' || blockType === 'Сценаристы') {
+                    screenwriter.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                } else if (blockType === 'Композитор' || blockType === 'Композиторы') {
+                    composer.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                } else if (blockType === 'Производство') {
+                    produced = blockName.innerText
+                } else if (blockType === 'Cерий') {
+                    +blockName.innerText > 4 ? type = 'Сериал' : type = 'Фильм'
+                } else if (blockType === 'Актеры') {
+                    allActorsBtn = blockName.querySelector('div > a').href
+                }
+
+                internalResult = {
+                    producer: producer.join(', '),
+                    screenwriter: screenwriter.join(', '),
+                    composer: composer.join(', '),
+                    produced: produced,
+                    type: type,
+                    allActorsBtn: allActorsBtn
+                }
             })
-        }
 
-    } catch (e) {
-        console.log(e)
+            return internalResult
+        })
+    }
+
+    function actors() {
+        return page.evaluate(async () => {
+            const container = await document.querySelectorAll('div.actor_details')
+            let result = {},
+                mainActors = []
+
+            container.forEach(actor => {
+                const isMain = actor.querySelector('.film_main_role')
+                const actorName = actor.querySelector('.film_name strong') ? actor.querySelector('.film_name strong').innerText : ''
+
+                isMain ? mainActors.push(actorName.replace(/\s*\(.*?\)$/gm, '')) : ''
+                result = {
+                    mainActors: mainActors.join(', ')
+                }
+            })
+            return result
+        })
+    }
+
+    function clearGlobalArr() {
+        return globalArr.map((item) => {
+            delete item.filmLink
+            delete item.allActorsBtn
+
+            return item
+        })
     }
 }
 
