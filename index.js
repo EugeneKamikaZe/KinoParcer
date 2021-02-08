@@ -1,7 +1,7 @@
 const fs = require('fs')
 const puppeteer = require('puppeteer')
 
-const link = 'https://www.kino-teatr.ru/kino/acter/w/ros/8174/works/'
+const link = 'https://www.kino-teatr.ru/kino/acter/w/ros/426855/works/'
 let globalArr = []
 
 const actor = async () => {
@@ -20,8 +20,8 @@ const actor = async () => {
     await page.goto(link, {waitUntil: 'domcontentloaded'})
         .then(() => page.waitForSelector('div.grid_content.page_content_block'))
 
-    let films = await page.evaluate(async () => {
-        const container = await document.querySelectorAll('div.film_block')
+    let films = await page.evaluate(() => {
+        const container = document.querySelectorAll('div.film_block')
         let result = []
 
         container.forEach(film => {
@@ -60,18 +60,15 @@ const actor = async () => {
             await page.goto(film.filmLink, {waitUntil: 'domcontentloaded'})
                 .then(() => page.waitForSelector('div.grid_content.page_content_block'))
             let newArr = Object.assign(film, await currentFilm())
-            await console.log(index, film.filmName)
 
             let newObj = await currentFilm()
             await page.goto(newObj.allActorsBtn, {waitUntil: 'domcontentloaded'})
                 .then(() => page.waitForSelector('div.grid_content.page_content_block'))
 
             await globalArr.push(Object.assign(newArr, await actors()))
+            await console.log(index, film.filmName)
         }
     }
-
-    console.log(await clearGlobalArr())
-    // await clearGlobalArr()
 
     // Writing to file ###
     await fs.writeFile('kino.json', JSON.stringify(await clearGlobalArr()), (err) => {
@@ -82,7 +79,7 @@ const actor = async () => {
 
     // Functions ###
     function currentFilm() {
-        return page.evaluate(async () => {
+        return page.evaluate( () => {
             let internalResult = {},
                 producer = [],
                 screenwriter = [],
@@ -91,7 +88,7 @@ const actor = async () => {
                 produced,
                 allActorsBtn
 
-            const container = await document.querySelector('div.grid_content.page_content_block')
+            const container = document.querySelector('div.grid_content.page_content_block')
             const personBlock = container.querySelectorAll('.film_persons_block')
 
             personBlock.forEach(item => {
@@ -99,11 +96,11 @@ const actor = async () => {
                 const blockName = item.querySelector('.film_persons_names')
 
                 if (blockType === 'Режиссер' || blockType === 'Режиссеры') {
-                    producer.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                    producer.push(blockName.innerText)
                 } else if (blockType === 'Сценарист' || blockType === 'Сценаристы') {
-                    screenwriter.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                    screenwriter.push(blockName.innerText)
                 } else if (blockType === 'Композитор' || blockType === 'Композиторы') {
-                    composer.push(blockName.innerText.replace(/\s*\(.*?\)$/gm, ''))
+                    composer.push(blockName.innerText)
                 } else if (blockType === 'Производство') {
                     produced = blockName.innerText
                 } else if (blockType === 'Cерий') {
@@ -113,9 +110,9 @@ const actor = async () => {
                 }
 
                 internalResult = {
-                    producer: producer.join(', '),
-                    screenwriter: screenwriter.join(', '),
-                    composer: composer.join(', '),
+                    producer: producer.join(', ').replace(/\s*\(.*\)\s*$/gm, ''),
+                    screenwriter: screenwriter.join(', ').replace(/\s*\(.*\)\s*$/gm, ''),
+                    composer: composer.join(', ').replace(/\s*\(.*\)\s*$/gm, ''),
                     produced: produced,
                     type: type,
                     allActorsBtn: allActorsBtn
@@ -127,8 +124,8 @@ const actor = async () => {
     }
 
     function actors() {
-        return page.evaluate(async () => {
-            const container = await document.querySelectorAll('div.actor_details')
+        return page.evaluate(() => {
+            const container = document.querySelectorAll('div.actor_details')
             let result = {},
                 mainActors = []
 
@@ -136,9 +133,9 @@ const actor = async () => {
                 const isMain = actor.querySelector('.film_main_role')
                 const actorName = actor.querySelector('.film_name strong') ? actor.querySelector('.film_name strong').innerText : ''
 
-                isMain ? mainActors.push(actorName.replace(/\s*\(.*?\)$/gm, '')) : ''
+                isMain ? mainActors.push(actorName) : ''
                 result = {
-                    mainActors: mainActors.join(', ')
+                    mainActors: mainActors.join(', ').replace(/\s*\(.*\)\s*$/gm, '')
                 }
             })
             return result
